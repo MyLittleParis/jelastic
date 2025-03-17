@@ -1,0 +1,81 @@
+---
+type: install
+name: Nginx/Docker Image (php/nginx)/Mariadb/Redis
+
+shortdomain: "${env.shortdomain}"
+displayName: "${settings.project_name} ${settings.tag}"
+ssl: true
+skipNodeEmails: true
+
+globals:
+  PATH: "${settings.path}"
+  DB_USER: "${settings.project_name}"
+  DB_PASS: "${settings.db_pass}"
+  ROOT_PASS: "${settings.root_pass}"
+  DB_NAME: "${settings.project_name}"
+  GH_TOKEN: "${settings.gh_token}"
+  GH_USER: "${settings.gh_user}"
+  IMAGE_DOCKER: "mylittleparis/${settings.project_name}:${settings.tag}"
+
+nodes:
+  - nodeType: nginx-dockerized
+    nodeGroup: bl
+    cmd: /usr/lib/systemd/systemd
+    tag: 1.24.0
+    fixedCloudlets: 1
+    cloudlets: 2
+    diskLimit: 5G
+    isSLBAccessEnabled: true
+
+  - nodeType: mariadb-dockerized
+    volumes: ["/var/lib/mysql","/var/lib/jelastic/backup"]
+    tag: 10.11.6
+    fixedCloudlets: 2
+    cloudlets: 4
+    diskLimit: 5G
+    isSLBAccessEnabled: false
+    nodeGroup: sqldb
+    password: "${globals.ROOT_PASS}"
+
+  - nodeType: docker
+    nodeGroup: cp
+    image: "${globals.IMAGE_DOCKER}"
+    registry:
+      url: ghcr.io
+      user: "${settings.gh_user}"
+      password: "${globals.GH_TOKEN}"
+    env:
+      SERVER_NAME: "${env.shortdomain}.${settings.domain_infomaniak}"
+      MARIADB_DATABASE: "${globals.DB_NAME}"
+      MARIADB_PASSWORD: "${globals.DB_PASS}"
+      MARIADB_USER: "${globals.DB_USER}"
+      MARIADB_HOST: sqldb
+      MARIADB_PORT:  3306
+    fixedCloudlets: 2
+    cloudlets: 6
+    diskLimit: 5G
+    isSLBAccessEnabled: true
+
+  - nodeType: docker
+    nodeGroup: redis
+    image: redis:7-alpine
+    fixedCloudlets: 1
+    cloudlets: 2
+    diskLimit: 5G
+
+onInstall:
+
+  prepareSqlDatabase:
+    - nodeGroup: sqldb
+      loginCredentials:
+        user: root
+        password: "${globals.ROOT_PASS}"
+      newDatabaseName: "${globals.DB_NAME}"
+      newDatabaseUser:
+        name: "${globals.DB_USER}"
+        password: "${globals.DB_PASS}"
+
+  cmd [cp]:
+    - cd /var/www/app
+    - composer install
+    - bin/console doctrine:migration:migrate --no-interaction
